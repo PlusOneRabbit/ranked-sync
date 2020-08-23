@@ -129,7 +129,7 @@ module.exports = async () => {
     for (let song of songs) {
         const response = await axios.get(`https://beatsaver.com/api/maps/by-hash/${song.id}`, { headers });
 
-        axios.get(`https://beatsaver.com${response.data.directDownload}`, { headers, responseType: 'arraybuffer' }).then(downloadResponse => {
+        axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' }).then(downloadResponse => {
             const name = `${response.data.key} (${sanitizeName(response.data.metadata.songName)} - ${sanitizeName(response.data.metadata.levelAuthorName)})`;
             const folder = `${config.install}\\Beat Saber_Data\\CustomLevels\\${name}`;
 
