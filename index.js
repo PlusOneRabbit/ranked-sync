@@ -3,7 +3,7 @@ const axios = require('axios');
 const JSZip = require('jszip');
 const sha1 = require('sha1');
 
-const version = process.env.npm_package_version;
+const version = require('./package.json').version;
 
 const config = JSON.parse(fs.readFileSync('./config.json'));
 
@@ -25,7 +25,7 @@ function sanitizeName(name) {
     return name;
 }
 
-(async () => {
+module.exports = async () => {
     let songs = [];
 
     console.log(`Ranked Sync v${version}`);
@@ -165,4 +165,4 @@ function sanitizeName(name) {
     console.log(`Lowest star rating: ${lowestStarRating}`);
     console.log('Tally of mappers with the most difficulties:');
     console.log(mapperTally.slice(0, 10).map((element, index) => `#${index + 1} ${element.name}: ${element.count}`).join('\n'));
-})();
+};
