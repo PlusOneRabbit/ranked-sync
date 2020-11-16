@@ -3,9 +3,47 @@ const axios = require('axios');
 const JSZip = require('jszip');
 const sha1 = require('sha1');
 
+const { default: PQueue } = require('p-queue');
+const log4js = require('log4js');
+
 const version = require('./package.json').version;
 
-const config = JSON.parse(fs.readFileSync('./config.json'));
+log4js.configure({
+    appenders: {
+        out: {
+            type: 'console',
+            layout: {
+                type: 'pattern',
+                pattern: '%[[%p]%] %m'
+            }
+        },
+        outFilter: {
+            type: 'logLevelFilter',
+            appender: 'out',
+            level: 'info'
+        },
+        log: {
+            type: 'file',
+            filename: 'last_run.log',
+            layout: {
+                type: 'pattern',
+                pattern: '[%d] [%p] %m'
+            },
+            flags: 'w'
+        }
+    },
+    categories: {
+        default: {
+            appenders: [
+                'outFilter',
+                'log'
+            ],
+            level: 'trace'
+        }
+    }
+});
+
+const logger = log4js.getLogger();
 
 const headers = {
     'User-Agent': `RankedSync/${version}`
@@ -26,24 +64,97 @@ function sanitizeName(name) {
 }
 
 module.exports = async () => {
+    logger.info(`======== Ranked Sync v${version} ========`);
+
+    if (!fs.existsSync('./config.json')) {
+        logger.warn('Config file does not exist. Copying from example...');
+        fs.copyFileSync('./config.example.json', './config.json');
+    }
+    
+    let config;
+    try {
+        config = JSON.parse(fs.readFileSync('./config.json'));
+    } catch (error) {
+        logger.fatal(`Error loading config.json: ${error}`);
+        log4js.shutdown();
+        return;
+    }
+
+    logger.info('Querying ScoreSaber...');
+
     let songs = [];
+    const maxLimit = 1000;
 
-    console.log(`Ranked Sync v${version}`);
+    for (let i = 0; i < config.count / maxLimit; i++) {
+        const limit = Math.min(maxLimit, config.count - i * maxLimit);
 
-    console.log('Querying ScoreSaber...');
+        try {
+            const response = await axios.get(`https://scoresaber.com/api.php?function=get-leaderboards&cat=3&page=${i + 1}&limit=${limit}&ranked=1&unique=1`, { headers });
 
-    for (let i = 0; i < config.count / 20; i++) {
-        const response = await axios.get(`https://scoresaber.com/api.php?function=get-leaderboards&cat=3&page=${i + 1}&limit=20&ranked=1`, { headers });
+            songs = songs.concat(response.data.songs);
 
-        songs = songs.concat(response.data.songs);
+            if (response.data.songs.length < limit) {
+                break;
+            }
+        } catch (error) {
+            if (error.response) {
+                logger.error(`Error querying ScoreSaber: Error ${error.response.status}: ${error.response.statusText}`);
+            } else if (error.request) {
+                // TODO: error.request is an instance of http.ClientRequest here, but I don't know how to get the error message from it
+                // The request is already finished and no error event is emitted if I register a handler at this point
+                // so I'm gonna roll with the classic "Network Error" and include the errno and code (may not always be available? no idea)
+                logger.error(`Error querying ScoreSaber: Network Error: ${error.errno ? error.errno + ' ' : ''}${error.code ? error.code : ''}`);
+            } else {
+                logger.error(`Error querying ScoreSaber: ${error.message}`);
+            }
+        }
 
         await sleep(100);
     }
 
-    console.log(`Collected ${songs.length} songs`);
+    if (config.qualified) {
+        let page = 0;
+
+        while (true) {
+            try {
+                const response = await axios.get(`https://scoresaber.com/api.php?function=get-leaderboards&cat=5&page=${page + 1}&limit=${maxLimit}&qualified=1&unique=1`, { headers });
+
+                songs = songs.concat(response.data.songs);
+
+                ++page;
+
+                if (response.data.songs.length < maxLimit) {
+                    break;
+                }
+            } catch (error) {
+                if (error.response) {
+                    logger.error(`Error querying ScoreSaber: Error ${error.response.status}: ${error.response.statusText}`);
+                } else if (error.request) {
+                    // TODO: error.request is an instance of http.ClientRequest here, but I don't know how to get the error message from it
+                    // The request is already finished and no error event is emitted if I register a handler at this point
+                    // so I'm gonna roll with the classic "Network Error" and include the errno and code (may not always be available? no idea)
+                    logger.error(`Error querying ScoreSaber: Network Error: ${error.errno ? error.errno + ' ' : ''}${error.code ? error.code : ''}`);
+                } else {
+                    logger.error(`Error querying ScoreSaber: ${error.message}`);
+                }
+
+                break;
+            }
+
+            await sleep(100);
+        }
+    }
+
+    if (songs.length <= 0) {
+        logger.warn('No songs were collected. Exiting...');
+        log4js.shutdown();
+        return;
+    }
+
+    logger.info(`Collected ${songs.length} songs`);
 
     let mapperTally = [];
-    const levelAuthorRegex = /(.+?)(?:\s*(?:[&,/\r\n]|(?:and))+\s*)/g; // This disgusting regex will isolate mapper names from the level author field, excluding separators
+    const levelAuthorRegex = /(.+?)(?:\s*(?:[&,/\r\n]|(?:and))+\s*|$)/g; // This disgusting regex will isolate mapper names from the level author field, excluding separators
     let levelAuthors = songs.map(song => song.levelAuthorName);
     levelAuthors.forEach(levelAuthor => {
         const mappers = [...levelAuthor.matchAll(levelAuthorRegex)].map(matches => matches[1].toLowerCase());
@@ -61,14 +172,26 @@ module.exports = async () => {
     const lowestStarRating = songs[songs.length - 1].stars;
     let skipped = 0;
     let downloaded = 0;
+    let errored = 0;
 
-    console.log('Checking for existing maps...');
+    logger.info('Checking for existing maps...');
 
-    const files = fs.readdirSync(`${config.install}\\Beat Saber_Data\\CustomLevels`);
+    let customLevels = config.folderOverride ? config.folderOverride : `${config.install}\\Beat Saber_Data\\CustomLevels`;
+
+    if (customLevels.endsWith('\\')) {
+        customLevels = customLevels.slice(0, -1);
+    }
+
+    if (!fs.existsSync(customLevels)) {
+        fs.mkdirSync(customLevels, { recursive: true });
+        logger.warn(`CustomLevels folder did not exist, creating one at ${customlevels}. Was this intentional?`);
+    }
+
+    const files = fs.readdirSync(customLevels);
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        const folder = `${config.install}\\Beat Saber_Data\\CustomLevels\\${file}`;
+        const folder = `${customLevels}\\${file}`;
         
         let infoRaw = null, info = null, beatmapsRaw = '';
         if (fs.existsSync(`${folder}\\Info.dat`)) {
@@ -89,11 +212,11 @@ module.exports = async () => {
                             }
                         }
                     } else {
-                        console.log(`${file} has no difficulty beatmaps on a set!`);
+                        logger.warn(`${file} has no difficulty beatmaps on a set!`);
                     }
                 }
             } else {
-                console.log(`${file} has no difficulty beatmap sets!`);
+                logger.warn(`${file} has no difficulty beatmap sets!`);
             }
         } else {
             // Not a map folder
@@ -116,53 +239,87 @@ module.exports = async () => {
         } while (index >= 0);
         
         if (didSkip) {
-            console.log(`${file} already downloaded, skipping`);
+            logger.info(`${file} already downloaded, skipping`);
         }
     }
 
-    console.log(`Skipped: ${skipped}, remaining: ${songs.length}`);
+    logger.info(`Skipped: ${skipped}, remaining: ${songs.length}`);
 
-    console.log('Querying BeatSaver...');
+    if (songs.length > 0) {
+        logger.info('Querying BeatSaver...');
 
-    let newSkipped = 0;
+        const queue = new PQueue({ concurrency: 3 });
 
-    for (let song of songs) {
-        const response = await axios.get(`https://beatsaver.com/api/maps/by-hash/${song.id}`, { headers });
+        for (let song of songs) {
+            queue.add(async () => {
+                let baseName = `${song.id} (${sanitizeName(song.name)} - ${sanitizeName(song.levelAuthorName)})`;
 
-        axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' }).then(downloadResponse => {
-            const name = `${response.data.key} (${sanitizeName(response.data.metadata.songName)} - ${sanitizeName(response.data.metadata.levelAuthorName)})`;
-            const folder = `${config.install}\\Beat Saber_Data\\CustomLevels\\${name}`;
+                try {
+                    logger.info(`Getting info for: ${baseName}`);
 
-            if (fs.existsSync(folder)) {
-                console.log(`Already downloaded: ${name}`);
-                ++newSkipped;
-                return;
-            } else {
-                fs.mkdirSync(folder, { recursive: true });
-            }
+                    const response = await axios.get(`https://beatsaver.com/api/maps/by-hash/${song.id}`, { headers });
 
-            console.log(`Now downloading: ${name}`);
+                    baseName = `${response.data.key} (${sanitizeName(response.data.metadata.songName)} - ${sanitizeName(response.data.metadata.levelAuthorName)})`;
 
-            JSZip.loadAsync(downloadResponse.data).then(zip => {
-                for (let file in zip.files) {
-                    zip.files[file].nodeStream().pipe(fs.createWriteStream(`${folder}\\${file}`));
+                    let name;
+                    let folder;
+                    let tries = -1;
+
+                    do {
+                        ++tries;
+                
+                        name = baseName + (tries > 0 ? ` (${tries})` : '');
+                        folder = `${customLevels}\\${name}`;
+                    } while (fs.existsSync(folder));
+
+                    logger.info(`Downloading: ${name}`);
+
+                    const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' });
+
+                    fs.mkdirSync(folder, { recursive: true });
+
+                    logger.info(`Extracting: ${name}`);
+
+                    const zip = await JSZip.loadAsync(downloadResponse.data);
+
+                    for (let file in zip.files) {
+                        zip.files[file].nodeStream().pipe(fs.createWriteStream(`${folder}\\${file}`));
+                    }
+
+                    logger.info(`Finished: ${name}`);
+
+                    ++downloaded;
+                } catch (error) {
+                    if (error.response) {
+                        logger.error(`Error downloading ${baseName}: Error ${error.response.status}: ${error.response.statusText}`);
+                    } else if (error.request) {
+                        // TODO: error.request is an instance of http.ClientRequest here, but I don't know how to get the error message from it
+                        // The request is already finished and no error event is emitted if I register a handler at this point
+                        // so I'm gonna roll with the classic "Network Error" and include the errno and code (may not always be available? no idea)
+                        logger.error(`Error downloading ${baseName}: Network Error: ${error.errno ? error.errno + ' ' : ''}${error.code ? error.code : ''}`);
+                    } else {
+                        logger.error(`Error downloading ${baseName}: ${error.message}`);
+                    }
+
+                    ++errored;
                 }
 
-                console.log(`Downloaded: ${name}`);
-                ++downloaded;
+                await sleep(100);
             });
-        });
-        await sleep(100);
+        }
+
+        await queue.onIdle();
     }
 
-    while (newSkipped + downloaded < songs.length) {
-        await sleep(100);
-    }
+    logger.info('======== Finished syncing ========');
+    logger.info(`Skipped ${skipped} song` + (skipped !== 1 ? 's' : ''));
+    logger.info(`Downloaded ${downloaded} song` + (downloaded !== 1 ? 's' : ''));
+    logger.info(`Failed to download ${errored} song` + (errored !== 1 ? 's' : ''));
+    logger.info(`Star rating of top diff on lowest map: ${lowestStarRating}`);
+    logger.info('Tally of mappers who contributed to the most maps:');
+    mapperTally.slice(0, 20).forEach((element, index) => {
+        logger.info(`#${index + 1} ${element.name}: ${element.count}`);
+    });
 
-    console.log('======== Finished syncing ========');
-    console.log(`Skipped ${skipped + newSkipped} songs`);
-    console.log(`Downloaded ${downloaded} songs`);
-    console.log(`Lowest star rating: ${lowestStarRating}`);
-    console.log('Tally of mappers with the most difficulties:');
-    console.log(mapperTally.slice(0, 10).map((element, index) => `#${index + 1} ${element.name}: ${element.count}`).join('\n'));
+    log4js.shutdown();
 };
