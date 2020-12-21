@@ -2,5 +2,7 @@
     "install": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Beat Saber",
 	"folderOverride": "",
     "count": 300,
-	"qualified": false
+    "qualified": false,
+    "warnUnranked": false,
+    "deleteUnranked": false
 }

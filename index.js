@@ -170,9 +170,10 @@ module.exports = async () => {
     mapperTally.sort((a, b) => b.count - a.count);
 
     const lowestStarRating = songs[songs.length - 1].stars;
-    let skipped = 0;
-    let downloaded = 0;
-    let errored = 0;
+    let totalSkipped = 0;
+    let totalDownloaded = 0;
+    let totalErrored = 0;
+    let totalUnranked = 0;
 
     logger.info('Checking for existing maps...');
 
@@ -188,6 +189,8 @@ module.exports = async () => {
     }
 
     const files = fs.readdirSync(customLevels);
+
+    let unrankedList = [];
 
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
@@ -226,24 +229,37 @@ module.exports = async () => {
 
         const hash = sha1(infoRaw + beatmapsRaw);
 
-        let didSkip = false;
+        let skipped = false;
+        let unranked = !songs.some(song => song.id.toLowerCase() === hash);
 
         let index;
         do {
             index = songs.findIndex(song => song.id.toLowerCase() === hash);
             if (index >= 0) {
-                didSkip = true;
+                skipped = true;
                 songs.splice(index, 1);
-                ++skipped;
+                ++totalSkipped;
             }
         } while (index >= 0);
         
-        if (didSkip) {
+        if (skipped) {
             logger.info(`${file} already downloaded, skipping`);
+        }
+
+        if (unranked) {
+            ++totalUnranked;
+            unrankedList.push({ file, folder });
+
+            if (config.deleteUnranked) {
+                logger.warn(`${file} is unranked, deleting`);
+                fs.rmdirSync(folder, { recursive: true });
+            } else if (config.warnUnranked) {
+                logger.warn(`${file} is unranked`);
+            }
         }
     }
 
-    logger.info(`Skipped: ${skipped}, remaining: ${songs.length}`);
+    logger.info(`Skipped: ${totalSkipped}, remaining: ${songs.length}`);
 
     if (songs.length > 0) {
         logger.info('Querying BeatSaver...');
@@ -288,7 +304,7 @@ module.exports = async () => {
 
                     logger.info(`Finished: ${name}`);
 
-                    ++downloaded;
+                    ++totalDownloaded;
                 } catch (error) {
                     if (error.response) {
                         logger.error(`Error downloading ${baseName}: Error ${error.response.status}: ${error.response.statusText}`);
@@ -301,7 +317,7 @@ module.exports = async () => {
                         logger.error(`Error downloading ${baseName}: ${error.message}`);
                     }
 
-                    ++errored;
+                    ++totalErrored;
                 }
 
                 await sleep(100);
@@ -311,10 +327,23 @@ module.exports = async () => {
         await queue.onIdle();
     }
 
+    if ((config.warnUnranked || config.deleteUnranked) && unrankedList.length > 0) {
+        if (config.deleteUnranked) {
+            logger.warn('======== List of unranked maps (deleted) ========');
+        } else {
+            logger.warn('======== List of unranked maps ========');
+        }
+
+        unrankedList.forEach(map => {
+            logger.warn(map.file);
+        })
+    }
+
     logger.info('======== Finished syncing ========');
-    logger.info(`Skipped ${skipped} song` + (skipped !== 1 ? 's' : ''));
-    logger.info(`Downloaded ${downloaded} song` + (downloaded !== 1 ? 's' : ''));
-    logger.info(`Failed to download ${errored} song` + (errored !== 1 ? 's' : ''));
+    logger.info(`Skipped ${totalSkipped} song` + (totalSkipped !== 1 ? 's' : ''));
+    logger.info(`Downloaded ${totalDownloaded} song` + (totalDownloaded !== 1 ? 's' : ''));
+    logger.info(`Failed to download ${totalErrored} song` + (totalErrored !== 1 ? 's' : ''));
+    logger.info(`Found ${totalUnranked} unranked song` + (totalUnranked !== 1 ? 's' : ''));
     logger.info(`Star rating of top diff on lowest map: ${lowestStarRating}`);
     logger.info('Tally of mappers who contributed to the most maps:');
     mapperTally.slice(0, 20).forEach((element, index) => {

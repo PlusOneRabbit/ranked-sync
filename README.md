@@ -4,7 +4,7 @@ A small personal script used to download and install the top ranked Beat Saber m
 
 ## Installation
 
-Clone the repo, or download the latest binary from the [Releases tab](https://github.com/PlusOneRabbit/ranked-sync/releases)
+Clone the repo and install dependencies using `npm i`, or download the latest binary from the [Releases tab](https://github.com/PlusOneRabbit/ranked-sync/releases)
 
 ## Setup
 
@@ -53,6 +53,24 @@ If omitted, this will be treated as false.
 Example:<br>
 `"qualified": false`<br>
 `"qualified": true`
+
+### Option: `warnUnranked`
+
+Whether to log a warning whenever an unranked map is found in the specified CustomLevels folder. Useful if you have a separate folder for exclusively ranked maps, and want to weed out old qualified versions.<br>
+If omitted, this will be treated as false.
+
+Example:<br>
+`"warnUnranked": false`<br>
+`"warnUnranked": true`
+
+### Option: `deleteUnranked`
+
+The same as the above option, however the program will **permanently delete** any unranked maps that are found. Not recommended unless you know what you're doing, and are using a separate folder.<br>
+If omitted, this will be treated as false.
+
+Example:<br>
+`"deleteUnranked": false`<br>
+`"deleteUnranked": true`
 
 ## Usage
 
