@@ -4,7 +4,7 @@ A small personal script used to download and install the top ranked Beat Saber m
 
 ## Installation
 
-Clone the repo and install dependencies using `npm i`, or download the latest binary from the [Releases tab](https://github.com/PlusOneRabbit/ranked-sync/releases)
+Clone the repo and install dependencies using `npm install`, or download the latest binary from the [Releases tab](https://github.com/PlusOneRabbit/ranked-sync/releases)
 
 ## Setup
 
@@ -16,8 +16,8 @@ From here, you can configure the script using the options listed below.
 
 ### Option: `install`
 
-The root of your Beat Saber installation directory. The CustomLevels folder will be automatically found from here.<br>
-Make sure to use two backslashes when entering a path, as backslashes are a special character!
+The root of your Beat Saber installation directory. The `CustomLevels` folder will be automatically found from here.<br>
+Make sure to use two backslashes when entering a path, as backslashes are an escape character!
 
 Example:<br>
 `"install": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Beat Saber"`<br>
@@ -28,7 +28,7 @@ Example:<br>
 ### Option: `folderOverride`
 
 Allows you to override the folder to download maps to. Useful if you're using this with another tool outside of a Beat Saber installation.<br>
-If blank or omitted, this will be ignored. The CustomLevels folder from your installation directory will be used.
+If blank or omitted, this will be ignored. The `CustomLevels` folder from your installation directory will be used.
 
 Example:<br>
 `"folderOverride": ""`<br>
@@ -52,7 +52,7 @@ If omitted, this will be treated as true.
 
 Example:<br>
 `"extract": true`<br>
-`"extract": false`<br>
+`"extract": false`
 
 ### Option: `qualified`
 
@@ -80,6 +80,52 @@ If omitted, this will be treated as false.
 Example:<br>
 `"deleteUnranked": false`<br>
 `"deleteUnranked": true`
+
+### Option: `createPlaylist`
+
+Creates a `RankedLevels.bplist` playlist in your `Playlists` folder featuring the downloaded maps. Requires a secondary mod such as PlaylistLoaderLite to view in-game.<br>
+If omitted, this will be treated as false.
+
+Example:<br>
+`"createPlaylist": false`<br>
+`"createPlaylist": true`
+
+### Option: `playlistOverride`
+
+Allows you to override the location where the playlist file will be created. Should be a path to a file with extension `.bplist` or `.json`<br>
+If blank or omitted, this will be ignored. `RankedLevels.bplist` inside your `Playlists` folder from your installation directory will be used.
+
+Example:<br>
+`"playlistOverride": ""`<br>
+`"playlistOverride": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Beat Saber\\Playlists\\RankedLevels.bplist"`<br>
+`"playlistOverride": "C:\\Program Files\\Oculus\\Software\\Software\\hyperbolic-magnetism-beat-saber\\Playlists\\RankedLevels.bplist"`
+
+### Option: `playlistMaxCount`
+
+The maximum number of songs to include in the playlist. The songs with the highest star ratings go in first.<br>
+If zero or omitted, this will be ignored.
+
+Example:<br>
+`"playlistMaxCount": 0`<br>
+`"playlistMaxCount": 100`
+
+### Option: `playlistMinStars`
+
+The minimum star rating of songs to be included in the playlist.<br>
+If zero or omitted, this will be ignored.
+
+Example:<br>
+`"playlistMinStars": 0`<br>
+`"playlistMinStars": 10`
+
+### Option: `playlistMaxStars`
+
+The maximum star rating of songs to be included in the playlist.<br>
+If zero or omitted, this will be ignored.
+
+Example:<br>
+`"playlistMaxStars": 0`<br>
+`"playlistMaxStars": 10`
 
 ## Usage
 
@@ -125,7 +171,7 @@ The output from the last run will be written to a file named `last_run.log`
 ## Contributing
 
 If you have something you'd like to add, feel free to make a PR.<br>
-You can contact me on Discord at Rabbit#0001
+You can contact me on Discord at Rabbit#0001 or on Twitter at [@plusonerabbit](https://twitter.com/plusonerabbit)
 
 ## License
 

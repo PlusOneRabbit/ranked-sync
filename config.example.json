@@ -5,5 +5,10 @@
     "count": 300,
     "qualified": false,
     "warnUnranked": false,
-    "deleteUnranked": false
+    "deleteUnranked": false,
+    "createPlaylist": false,
+    "playlistOverride": "",
+    "playlistMaxCount": 0,
+    "playlistMinStars": 0,
+    "playlistMaxStars": 0
 }

@@ -1,11 +1,15 @@
 {
   "name": "ranked-sync",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "",
-  "main": "index.js",
-  "bin": "bin.js",
+  "main": "src/index.js",
+  "bin": "src/bin.js",
   "scripts": {
-    "start": "node bin.js"
+    "start": "node src/bin.js"
+  },
+  "pkg": {
+    "scripts": "src/**/*",
+    "assets": "assets/**/*"
   },
   "author": "PlusOneRabbit",
   "private": true,
