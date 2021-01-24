@@ -45,6 +45,15 @@ Example:<br>
 `"count": 300` <br>
 `"count": 1000`
 
+### Option: `extract`
+
+Whether to extract maps to folders, or save them as zip files. If you are on PC, you likely want this set to true. Quest users may set it to false, so the maps can be more easily uploaded to BMBF.<br>
+If omitted, this will be treated as true.
+
+Example:<br>
+`"extract": true`<br>
+`"extract": false`<br>
+
 ### Option: `qualified`
 
 Whether to download all currently qualified maps. These will be downloaded in addition to the number specified by `count`<br>

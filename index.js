@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const axios = require('axios');
 const JSZip = require('jszip');
 const sha1 = require('sha1');
@@ -47,7 +48,7 @@ const logger = log4js.getLogger();
 
 const headers = {
     'User-Agent': `RankedSync/${version}`
-}
+};
 
 function sleep(ms) {
     return new Promise((resolve, reject) => {
@@ -185,7 +186,7 @@ module.exports = async () => {
 
     if (!fs.existsSync(customLevels)) {
         fs.mkdirSync(customLevels, { recursive: true });
-        logger.warn(`CustomLevels folder did not exist, creating one at ${customlevels}. Was this intentional?`);
+        logger.warn(`CustomLevels folder did not exist, creating one at ${customLevels}. Was this intentional?`);
     }
 
     const files = fs.readdirSync(customLevels);
@@ -195,66 +196,103 @@ module.exports = async () => {
     for (let i = 0; i < files.length; i++) {
         const file = files[i];
         const folder = `${customLevels}\\${file}`;
-        
-        let infoRaw = null, info = null, beatmapsRaw = '';
-        if (fs.existsSync(`${folder}\\Info.dat`)) {
-            infoRaw = fs.readFileSync(`${folder}\\Info.dat`);
-            info = JSON.parse(infoRaw);
-        }
-        if (fs.existsSync(`${folder}\\info.dat`)) {
-            infoRaw = fs.readFileSync(`${folder}\\info.dat`);
-            info = JSON.parse(infoRaw);
-        }
-        if (info) {
-            if (info._difficultyBeatmapSets) {
-                for (let difficultyBeatmapSet of info._difficultyBeatmapSets) {
-                    if (difficultyBeatmapSet._difficultyBeatmaps) {
-                        for (let difficultyBeatmap of difficultyBeatmapSet._difficultyBeatmaps) {
-                            if (fs.existsSync(`${folder}\\${difficultyBeatmap._beatmapFilename}`)) {
-                                beatmapsRaw += fs.readFileSync(`${folder}\\${difficultyBeatmap._beatmapFilename}`);
+
+        const isZip = path.extname(file) === '.zip';
+
+        let infoRaw = '', beatmapsRaw = '';
+
+        if (isZip && config.extract === false) {
+            const zip = await new JSZip().loadAsync(fs.readFileSync(folder));
+
+            let infoFile = zip.file('Info.dat') || zip.file('info.dat');
+            if (infoFile) {
+                infoRaw = await infoFile.async('text');
+                let info = JSON.parse(infoRaw);
+                if (info._difficultyBeatmapSets) {
+                    for (let difficultyBeatmapSet of info._difficultyBeatmapSets) {
+                        if (difficultyBeatmapSet._difficultyBeatmaps) {
+                            for (let difficultyBeatmap of difficultyBeatmapSet._difficultyBeatmaps) {
+                                let beatmapFile = zip.file(difficultyBeatmap._beatmapFilename);
+                                if (beatmapFile) {
+                                    beatmapsRaw += await beatmapFile.async('text');
+                                }
                             }
+                        } else {
+                            logger.warn(`${file} has no difficulty beatmaps on a set!`);
                         }
-                    } else {
-                        logger.warn(`${file} has no difficulty beatmaps on a set!`);
                     }
+                } else {
+                    logger.warn(`${file} has no difficulty beatmap sets!`);
+                }
+            }
+        } else if (!isZip && (config.extract || config.extract == null)) {
+            let info = null;
+            if (fs.existsSync(`${folder}\\Info.dat`)) {
+                infoRaw = fs.readFileSync(`${folder}\\Info.dat`);
+                info = JSON.parse(infoRaw);
+            }
+            if (fs.existsSync(`${folder}\\info.dat`)) {
+                infoRaw = fs.readFileSync(`${folder}\\info.dat`);
+                info = JSON.parse(infoRaw);
+            }
+            if (info) {
+                if (info._difficultyBeatmapSets) {
+                    for (let difficultyBeatmapSet of info._difficultyBeatmapSets) {
+                        if (difficultyBeatmapSet._difficultyBeatmaps) {
+                            for (let difficultyBeatmap of difficultyBeatmapSet._difficultyBeatmaps) {
+                                if (fs.existsSync(`${folder}\\${difficultyBeatmap._beatmapFilename}`)) {
+                                    beatmapsRaw += fs.readFileSync(`${folder}\\${difficultyBeatmap._beatmapFilename}`);
+                                }
+                            }
+                        } else {
+                            logger.warn(`${file} has no difficulty beatmaps on a set!`);
+                        }
+                    }
+                } else {
+                    logger.warn(`${file} has no difficulty beatmap sets!`);
                 }
             } else {
-                logger.warn(`${file} has no difficulty beatmap sets!`);
+                // Not a map folder
+                files.splice(i, 1);
+                continue;
             }
-        } else {
-            // Not a map folder
-            files.splice(i, 1);
-            continue;
         }
 
-        const hash = sha1(infoRaw + beatmapsRaw);
+        if (infoRaw.length > 0 || beatmapsRaw.length > 0) {
+            const hash = sha1(infoRaw + beatmapsRaw);
 
-        let skipped = false;
-        let unranked = !songs.some(song => song.id.toLowerCase() === hash);
+            let skipped = false;
+            let unranked = !songs.some(song => song.id.toLowerCase() === hash);
 
-        let index;
-        do {
-            index = songs.findIndex(song => song.id.toLowerCase() === hash);
-            if (index >= 0) {
-                skipped = true;
-                songs.splice(index, 1);
-                ++totalSkipped;
+            let index;
+            do {
+                index = songs.findIndex(song => song.id.toLowerCase() === hash);
+                if (index >= 0) {
+                    skipped = true;
+                    songs.splice(index, 1);
+                    ++totalSkipped;
+                }
+            } while (index >= 0);
+    
+            if (skipped) {
+                logger.info(`${file} already downloaded, skipping`);
             }
-        } while (index >= 0);
-        
-        if (skipped) {
-            logger.info(`${file} already downloaded, skipping`);
-        }
 
-        if (unranked) {
-            ++totalUnranked;
-            unrankedList.push({ file, folder });
+            if (unranked) {
+                ++totalUnranked;
+                unrankedList.push(file);
 
-            if (config.deleteUnranked) {
-                logger.warn(`${file} is unranked, deleting`);
-                fs.rmdirSync(folder, { recursive: true });
-            } else if (config.warnUnranked) {
-                logger.warn(`${file} is unranked`);
+                if (config.deleteUnranked) {
+                    logger.warn(`${file} is unranked, deleting`);
+
+                    if (isZip) {
+                        fs.unlinkSync(folder);
+                    } else {
+                        fs.rmdirSync(folder, { recursive: true });
+                    }
+                } else if (config.warnUnranked) {
+                    logger.warn(`${file} is unranked`);
+                }
             }
         }
     }
@@ -285,21 +323,27 @@ module.exports = async () => {
                         ++tries;
                 
                         name = baseName + (tries > 0 ? ` (${tries})` : '');
-                        folder = `${customLevels}\\${name}`;
+                        folder = `${customLevels}\\${name}` + (config.extract === false ? '.zip' : '');
                     } while (fs.existsSync(folder));
 
                     logger.info(`Downloading: ${name}`);
 
-                    const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' });
+                    if (config.extract || config.extract == null) {
+                        const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' });
 
-                    fs.mkdirSync(folder, { recursive: true });
+                        fs.mkdirSync(folder, { recursive: true });
 
-                    logger.info(`Extracting: ${name}`);
+                        logger.info(`Extracting: ${name}`);
 
-                    const zip = await JSZip.loadAsync(downloadResponse.data);
+                        const zip = await new JSZip().loadAsync(downloadResponse.data);
 
-                    for (let file in zip.files) {
-                        zip.files[file].nodeStream().pipe(fs.createWriteStream(`${folder}\\${file}`));
+                        for (let file in zip.files) {
+                            await new Promise(resolve => zip.files[file].nodeStream().pipe(fs.createWriteStream(`${folder}\\${file}`)).on('finish', resolve));
+                        }
+                    } else {
+                        const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'stream' });
+
+                        await new Promise(resolve => downloadResponse.data.pipe(fs.createWriteStream(folder)).on('finish', resolve));
                     }
 
                     logger.info(`Finished: ${name}`);
@@ -335,7 +379,7 @@ module.exports = async () => {
         }
 
         unrankedList.forEach(map => {
-            logger.warn(map.file);
+            logger.warn(map);
         })
     }
 
