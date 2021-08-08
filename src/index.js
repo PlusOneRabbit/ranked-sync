@@ -352,9 +352,9 @@ module.exports = async () => {
                 try {
                     logger.info(`Getting info for: ${baseName}`);
 
-                    const response = await axios.get(`https://beatsaver.com/api/maps/by-hash/${song.id}`, { headers });
+                    const response = await axios.get(`https://api.beatsaver.com/maps/hash/${song.id}`, { headers });
 
-                    baseName = `${response.data.key} (${sanitizeName(response.data.metadata.songName)} - ${sanitizeName(response.data.metadata.levelAuthorName)})`;
+                    baseName = `${response.data.id} (${sanitizeName(response.data.metadata.songName)} - ${sanitizeName(response.data.metadata.levelAuthorName)})`;
 
                     let name;
                     let folder;
@@ -369,8 +369,10 @@ module.exports = async () => {
 
                     logger.info(`Downloading: ${name}`);
 
+                    const downloadURL = response.data.versions[response.data.versions.length - 1].downloadURL;
+
                     if (config.extract || config.extract == null) {
-                        const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'arraybuffer' });
+                        const downloadResponse = await axios.get(downloadURL, { headers, responseType: 'arraybuffer' });
 
                         fs.mkdirSync(folder, { recursive: true });
 
@@ -382,7 +384,7 @@ module.exports = async () => {
                             await new Promise(resolve => zip.files[file].nodeStream().pipe(fs.createWriteStream(`${folder}\\${file}`)).on('finish', resolve));
                         }
                     } else {
-                        const downloadResponse = await axios.get(`https://beatsaver.com${response.data.downloadURL}`, { headers, responseType: 'stream' });
+                        const downloadResponse = await axios.get(downloadURL, { headers, responseType: 'stream' });
 
                         await new Promise(resolve => downloadResponse.data.pipe(fs.createWriteStream(folder)).on('finish', resolve));
                     }
